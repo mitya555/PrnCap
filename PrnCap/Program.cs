@@ -15,7 +15,21 @@ namespace PrnCap
         static void Main(string[] args)
         {
             WmiWrapper.InstallPrinter();
-            new TcpReceiver().Listening(new IPEndPoint(IPAddress.Loopback, 9100));
+
+            var tcpReceiver = new TcpReceiver();
+
+            AppDomain.CurrentDomain.ProcessExit += (sender, eventArgs) =>
+            {
+                tcpReceiver.Stop().WaitOne();
+                Thread.Sleep(2000);
+            };
+            Thread.GetDomain().UnhandledException += (sender, eventArgs) =>
+            {
+                tcpReceiver.Stop().WaitOne();
+                Thread.Sleep(2000);
+            };
+
+            tcpReceiver.Listening(new IPEndPoint(IPAddress.Loopback, 9100));
         }
     }
 }

@@ -12,7 +12,16 @@ namespace PrnCap
     class TcpReceiver
     {
         Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        ManualResetEvent handlerObtained = new ManualResetEvent(false);
+        ManualResetEvent listenerWaitHandle = new ManualResetEvent(false);
+        bool signalStop = false;
+        ManualResetEvent exitWaitHandle;
+        public WaitHandle Stop()
+        {
+            signalStop = true;
+            listenerWaitHandle.Set();
+            return (exitWaitHandle = new ManualResetEvent(false));
+        }
+        HashSet<WaitHandle> connectionWaitHandles = new HashSet<WaitHandle>();
         string destPath = Path.Combine(Path.GetTempPath(), "PrnCap");
         public void Listening(EndPoint endPoint, int backlog = 100)
         {
@@ -25,41 +34,59 @@ namespace PrnCap
                 while (true)
                 {
                     // Set the event to nonsignaled state.  
-                    handlerObtained.Reset();
+                    listenerWaitHandle.Reset();
 
                     // Start an asynchronous socket to listen for connections.
                     Console.WriteLine(NowWithTimezone().ToString("o") + "\tListening...");
                     listener.BeginAccept(AcceptCallback, null);
 
                     // Wait until a connection is made before continuing.  
-                    handlerObtained.WaitOne();
+                    listenerWaitHandle.WaitOne();
+                    if (signalStop)
+                    {
+                        break;
+                    }
                 }
+
+                WaitHandle.WaitAll(connectionWaitHandles.ToArray());
 
             }
             catch (Exception e)
             {
                 Console.WriteLine(e.ToString());
             }
+            finally
+            {
+                if (exitWaitHandle != null)
+                {
+                    exitWaitHandle.Set();
+                }
+                foreach (var wh in connectionWaitHandles)
+                {
+                    wh.Close();
+                }
+            }
         }
 
         private static DateTimeOffset NowWithTimezone()
         {
-            DateTime _now = DateTime.Now;
-            DateTimeOffset _now_w_tz = new DateTimeOffset(_now, TimeZoneInfo.Local.GetUtcOffset(_now));
+            var _now = DateTime.Now;
+            var _now_w_tz = new DateTimeOffset(_now, TimeZoneInfo.Local.GetUtcOffset(_now));
             return _now_w_tz;
         }
 
         void AcceptCallback(IAsyncResult ar)
         {
-            // Get the socket that handles the client request.  
-            Socket handler = listener.EndAccept(ar);
-
             // Signal the main thread to continue.  
-            handlerObtained.Set();
+            listenerWaitHandle.Set();
+
+            // Get the socket that handles the client request.  
+            var tcpConnectionHandler = listener.EndAccept(ar);
 
             // Create the state object.  
-            StateObject state = new StateObject() { workSocket = handler };
-            handler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0, ReadCallback, state);
+            var state = new StateObject() { workSocket = tcpConnectionHandler };
+            var res = tcpConnectionHandler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0, ReadCallback, state);
+            connectionWaitHandles.Add(res.AsyncWaitHandle);
         }
         // State object for reading client data asynchronously  
         class StateObject
@@ -75,15 +102,19 @@ namespace PrnCap
         }
         void ReadCallback(IAsyncResult ar)
         {
-            String content = String.Empty;
+            // signal whoever is waiting to continue
+            using (var wh = ar.AsyncWaitHandle)
+            {
+                connectionWaitHandles.Remove(wh);
+            }
 
             // Retrieve the state object and the handler socket  
             // from the asynchronous state object.  
-            StateObject state = (StateObject)ar.AsyncState;
-            Socket handler = state.workSocket;
+            var state = (StateObject)ar.AsyncState;
+            var tcpConnectionHandler = state.workSocket;
 
-            // Read data from the client socket.   
-            int bytesRead = handler.EndReceive(ar);
+            // Read data from the client socket.
+            var bytesRead = tcpConnectionHandler.EndReceive(ar);
 
             if (bytesRead > 0)
             {
@@ -91,11 +122,12 @@ namespace PrnCap
                 state.data.Write(state.buffer, 0, bytesRead);
 
                 // Not all data received. Get more.  
-                handler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0, ReadCallback, state);
+                var res = tcpConnectionHandler.BeginReceive(state.buffer, 0, StateObject.BufferSize, 0, ReadCallback, state);
+                connectionWaitHandles.Add(res.AsyncWaitHandle);
             }
             else
             {
-                byte[] _data = state.data/*.GetBuffer()*/.ToArray();
+                var _data = state.data/*.GetBuffer()*/.ToArray();
                 //Console.Write(Encoding.UTF8.GetString(_data));
                 Directory.CreateDirectory(destPath);
                 File.WriteAllBytes(Path.Combine(destPath, NowWithTimezone().ToString("yyyy-MM-dd_HH-mm-ss.fffzzz").Replace(":", "")), _data);
