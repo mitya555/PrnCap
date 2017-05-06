@@ -22,8 +22,8 @@ namespace PrnCap
                 _obj.SetPropertyValue("" + property[i], property[i + 1]);
             return _obj.Put();
         }
-        const string PRINTER_NAME = "iFexo localhost printer";
-        const string PORT_NAME = "iFexo localhost printer port";
+        const string PRINTER_NAME = "prncap localhost printer";
+        const string PORT_NAME = "prncap localhost printer port";
         public static void InstallPrinter()
         {
             var _printer = Query("Win32_Printer").FirstOrDefault(o => PRINTER_NAME.Equals(o["Name"]) && PRINTER_NAME.Equals(o["DeviceID"]));

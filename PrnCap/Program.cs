@@ -18,18 +18,22 @@ namespace PrnCap
 
             var tcpReceiver = new TcpReceiver();
 
-            AppDomain.CurrentDomain.ProcessExit += (sender, eventArgs) =>
-            {
-                tcpReceiver.Stop().WaitOne();
-                Thread.Sleep(2000);
-            };
-            Thread.GetDomain().UnhandledException += (sender, eventArgs) =>
-            {
-                tcpReceiver.Stop().WaitOne();
-                Thread.Sleep(2000);
-            };
+            //AppDomain.CurrentDomain.ProcessExit += (sender, eventArgs) =>
+            //{
+            //    tcpReceiver.Stop().WaitOne();
+            //    Thread.Sleep(2000);
+            //};
+            //Thread.GetDomain().UnhandledException += (sender, eventArgs) =>
+            //{
+            //    tcpReceiver.Stop().WaitOne();
+            //    Thread.Sleep(2000);
+            //};
 
-            tcpReceiver.Listening(new IPEndPoint(IPAddress.Loopback, 9100));
-        }
+			new Thread(() => tcpReceiver.Listening(new IPEndPoint(IPAddress.Loopback, 9100))).Start();
+
+			Console.Read();
+
+			tcpReceiver.Stop().WaitOne();
+		}
     }
 }
